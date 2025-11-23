@@ -68,7 +68,7 @@ class Department(Base):
     
     department_id = Column(Integer, primary_key=True, autoincrement=True)
     department_name = Column(String(255), nullable=False)
-    hod = Column(String(255))
+    hod = Column(String(255), name='HOD')
     school_id = Column(Integer, ForeignKey('school.school_id', ondelete='CASCADE', onupdate='CASCADE'), nullable=False)
     
     # Relationships

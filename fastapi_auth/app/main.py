@@ -3,18 +3,37 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from typing import Optional
 import uuid
+from datetime import timedelta
 
 # Local imports
 from . import models, schemas, utils, auth
 from .database import Base, engine, get_db
 from .config import ACCESS_TOKEN_EXPIRE_MINUTES
 
+# FIXED - Try multiple import paths:
+try:
+    import sys
+    import os
+    
+    # Add the project root to Python path
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if project_root not in sys.path:
+        sys.path.append(project_root)
+    
+    from face_recognition_system.integration import get_face_recognition_router
+    FACE_RECOGNITION_AVAILABLE = True
+    print("✅ Face Recognition import successful!")
+except ImportError as e:
+    FACE_RECOGNITION_AVAILABLE = False
+    print(f"❌ Face Recognition import failed: {str(e)}")
+
+
 security = HTTPBearer()
 
 app = FastAPI(
-    title="School Management System",
-    version="2.0.0",
-    description="Simplified system with only Add Teacher and Add Student endpoints"
+    title="School Management System with Face Recognition",
+    version="2.1.0",
+    description="School management system with integrated face recognition for student attendance"
 )
 
 @app.on_event("startup")
@@ -22,15 +41,34 @@ def startup():
     """Create all database tables on startup."""
     Base.metadata.create_all(bind=engine)
     print("✅ Database initialized successfully!")
+    
+    if FACE_RECOGNITION_AVAILABLE:
+        print("✅ Face Recognition system available!")
+    else:
+        print("⚠️  Face Recognition system not available!")
 
 @app.get("/", summary="API root")
 def root():
+    endpoints = {
+        "add_teacher": "POST /add-teacher (Bearer token required)",
+        "add_student": "POST /add-student (Bearer token required)"
+    }
+    
+    if FACE_RECOGNITION_AVAILABLE:
+        endpoints.update({
+            "face_recognition": {
+                "enroll_student": "POST /face-recognition/enroll-student",
+                "recognize": "POST /face-recognition/recognize", 
+                "student_status": "GET /face-recognition/student-status/{roll_no}",
+                "remove_student": "DELETE /face-recognition/student/{roll_no}",
+                "stats": "GET /face-recognition/stats"
+            }
+        })
+    
     return {
-        "message": "🚀 School Management System is running!",
-        "endpoints": {
-            "add_teacher": "POST /add-teacher (Bearer token required)",
-            "add_student": "POST /add-student (Bearer token required)"
-        }
+        "message": "🚀 School Management System with Face Recognition is running!",
+        "endpoints": endpoints,
+        "face_recognition_available": FACE_RECOGNITION_AVAILABLE
     }
 
 @app.post(
@@ -131,6 +169,82 @@ async def add_teacher(
         )
 
 @app.post(
+    "/register",
+    response_model=schemas.UserResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Register a new user"
+)
+def register(user_data: schemas.UserCreate, db: Session = Depends(get_db)):
+    """Register a new user with email and password only."""
+    
+    # Check if email already exists
+    if auth.get_user_by_email(db, user_data.email):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, 
+            detail="Email already registered"
+        )
+
+    # Hash password and create user
+    hashed_password = utils.get_password_hash(user_data.password)
+    new_user = models.User(
+        email=user_data.email,
+        password_hash=hashed_password,
+        role=3,  # Default role: teacher
+        name=user_data.email.split('@')[0]  # Use email prefix as name
+    )
+
+    try:
+        db.add(new_user)
+        db.commit()
+        db.refresh(new_user)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            detail=f"Database error: {str(e)}"
+        )
+
+    return new_user
+
+# Simple JSON login - no OAuth2 form complexity
+@app.post(
+    "/login",
+    response_model=schemas.Token,
+    summary="Login with email and password (JSON)"
+)
+def login(user_credentials: schemas.UserCreate, db: Session = Depends(get_db)):
+    """
+    Simple login with JSON body containing email and password.
+    """
+    user = auth.authenticate_user(db, user_credentials.email, user_credentials.password)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password"
+        )
+
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = utils.create_access_token(
+        data={"sub": user.email},
+        expires_delta=access_token_expires
+    )
+
+    return {"access_token": access_token, "token_type": "bearer"}
+
+@app.get(
+    "/users/me",
+    response_model=schemas.UserResponse,
+    summary="Get current user (Bearer token required)"
+)
+async def read_users_me(credentials: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_db)):
+    """
+    Get current user info using Bearer token.
+    """
+    token = credentials.credentials
+    user = await auth.get_current_user_simple(token, db)
+    return user
+
+@app.post(
     "/add-student",
     response_model=schemas.StudentResponse,
     status_code=status.HTTP_201_CREATED,
@@ -146,6 +260,8 @@ async def add_student(
     This endpoint:
     1. Creates a student profile
     2. Logs the activity
+    
+    Note: To enable face recognition for the student, use /face-recognition/enroll-student
     
     Requires: Bearer token authentication (admin, school, or teacher role)
     """
@@ -232,7 +348,7 @@ async def add_student(
         db.commit()
         db.refresh(new_student)
         
-        return {
+        response_data = {
             "roll_no": new_student.roll_no,
             "name": new_student.name,
             "email": new_student.email,
@@ -244,6 +360,13 @@ async def add_student(
             "message": "Student added successfully"
         }
         
+        if FACE_RECOGNITION_AVAILABLE:
+            response_data["next_steps"] = {
+                "face_recognition": "Use /face-recognition/enroll-student to add face recognition data"
+            }
+        
+        return response_data
+        
     except Exception as e:
         db.rollback()
         raise HTTPException(
@@ -253,4 +376,36 @@ async def add_student(
 
 @app.get("/health", summary="Health check")
 def health_check():
-    return {"status": "healthy", "service": "School Management System"}
+    health_status = {
+        "status": "healthy", 
+        "service": "School Management System",
+        "face_recognition": FACE_RECOGNITION_AVAILABLE
+    }
+    
+    if FACE_RECOGNITION_AVAILABLE:
+        health_status["face_recognition_status"] = "available"
+    else:
+        health_status["face_recognition_status"] = "not_available"
+    
+    return health_status
+
+# Add face recognition routes if available
+# Include face recognition routes if available
+if FACE_RECOGNITION_AVAILABLE:
+    try:
+        face_router = get_face_recognition_router()
+        app.include_router(face_router)
+        print("✅ Face Recognition routes added!")
+    except Exception as e:
+        print(f"❌ Failed to add face recognition routes: {str(e)}")
+else:
+    @app.get("/face-recognition", summary="Face Recognition Status")
+    def face_recognition_status():
+        return {
+            "available": False,
+            "message": "Face Recognition not available. Install dependencies: pip install -r requirements_face_recognition.txt",
+            "required_env_vars": [
+                "PINECONE_API_KEY",
+                "PINECONE_ENVIRONMENT"
+            ]
+        }
