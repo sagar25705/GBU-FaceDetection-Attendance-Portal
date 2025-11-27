@@ -1,14 +1,37 @@
+
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.middleware.cors import CORSMiddleware  # ✅ NEW IMPORT
 from sqlalchemy.orm import Session
 from typing import Optional
 import uuid
 from datetime import timedelta
+import os
+from contextlib import asynccontextmanager
 
 # Local imports
 from . import models, schemas, utils, auth
-from .database import Base, engine, get_db
+from .database import Base, get_db
 from .config import ACCESS_TOKEN_EXPIRE_MINUTES
+
+# Import create_engine
+from sqlalchemy import create_engine
+
+# Get DATABASE_URL from environment variable
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+if not DATABASE_URL:
+    raise ValueError("DATABASE_URL environment variable not set")
+
+# Create engine with connection pooling
+engine = create_engine(
+    DATABASE_URL,
+    pool_size=10,
+    max_overflow=20,
+    pool_timeout=60,
+    pool_recycle=3600,
+    pool_pre_ping=True
+)
 
 # FIXED - Try multiple import paths:
 try:
@@ -27,18 +50,16 @@ except ImportError as e:
     FACE_RECOGNITION_AVAILABLE = False
     print(f"❌ Face Recognition import failed: {str(e)}")
 
-
 security = HTTPBearer()
 
-app = FastAPI(
-    title="School Management System with Face Recognition",
-    version="2.1.0",
-    description="School management system with integrated face recognition for student attendance"
-)
-
-@app.on_event("startup")
-def startup():
-    """Create all database tables on startup."""
+# Lifespan context manager - replaces deprecated @app.on_event("startup")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Lifespan context manager for startup and shutdown events.
+    Code before yield runs on startup, code after yield runs on shutdown.
+    """
+    # STARTUP: Create all database tables
     Base.metadata.create_all(bind=engine)
     print("✅ Database initialized successfully!")
     
@@ -46,6 +67,49 @@ def startup():
         print("✅ Face Recognition system available!")
     else:
         print("⚠️  Face Recognition system not available!")
+    
+    # Add face recognition routes if available
+    if FACE_RECOGNITION_AVAILABLE:
+        try:
+            face_router = get_face_recognition_router()
+            app.include_router(face_router)
+            print("✅ Face Recognition routes added!")
+        except Exception as e:
+            print(f"❌ Failed to add face recognition routes: {str(e)}")
+    
+    yield  # Application runs here
+    
+    # SHUTDOWN: Add cleanup code here if needed
+    print("🔴 Application shutting down...")
+
+# Initialize FastAPI app with lifespan
+app = FastAPI(
+    title="School Management System with Face Recognition",
+    version="2.1.0",
+    description="School management system with integrated face recognition for student attendance",
+    lifespan=lifespan
+)
+
+# ✅ NEW: CORS Configuration
+# Frontend URLs ko yaha define karo
+origins = [
+    "http://localhost:8080",              # Local development
+    "http://localhost:3000",              # Alternate local port
+    "http://localhost:5173",              # Vite default port
+    "https://gbu-facelearn.vercel.app",   # Your Vercel deployment
+]
+
+# CORS Middleware add karo
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,                # Allowed origins
+    allow_credentials=True,               # Allow cookies/auth headers
+    allow_methods=["*"],                  # Allow all HTTP methods (GET, POST, PUT, DELETE, etc.)
+    allow_headers=["*"],                  # Allow all headers
+)
+
+print("✅ CORS configured successfully!")
+# ✅ END OF CORS CONFIGURATION
 
 @app.get("/", summary="API root")
 def root():
@@ -68,7 +132,8 @@ def root():
     return {
         "message": "🚀 School Management System with Face Recognition is running!",
         "endpoints": endpoints,
-        "face_recognition_available": FACE_RECOGNITION_AVAILABLE
+        "face_recognition_available": FACE_RECOGNITION_AVAILABLE,
+        "cors_enabled": True  # ✅ NEW: Indicate CORS is enabled
     }
 
 @app.post(
@@ -379,7 +444,8 @@ def health_check():
     health_status = {
         "status": "healthy", 
         "service": "School Management System",
-        "face_recognition": FACE_RECOGNITION_AVAILABLE
+        "face_recognition": FACE_RECOGNITION_AVAILABLE,
+        "cors_enabled": True  # ✅ NEW
     }
     
     if FACE_RECOGNITION_AVAILABLE:
@@ -389,16 +455,8 @@ def health_check():
     
     return health_status
 
-# Add face recognition routes if available
-# Include face recognition routes if available
-if FACE_RECOGNITION_AVAILABLE:
-    try:
-        face_router = get_face_recognition_router()
-        app.include_router(face_router)
-        print("✅ Face Recognition routes added!")
-    except Exception as e:
-        print(f"❌ Failed to add face recognition routes: {str(e)}")
-else:
+# Fallback route if face recognition is not available
+if not FACE_RECOGNITION_AVAILABLE:
     @app.get("/face-recognition", summary="Face Recognition Status")
     def face_recognition_status():
         return {
@@ -409,3 +467,5 @@ else:
                 "PINECONE_ENVIRONMENT"
             ]
         }
+
+
