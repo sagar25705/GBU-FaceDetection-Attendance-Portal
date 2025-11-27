@@ -1,41 +1,59 @@
+# database.py
+import os
 from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
-from .config import DATABASE_URL
+from sqlalchemy.ext.declarative import declarative_base
 
-# ============================================
-# PostgreSQL Engine Configuration
-# ============================================
-engine = create_engine(
-    DATABASE_URL,
-    pool_pre_ping=True,        # Check connection health before using
-    pool_size=10,               # Connection pool size
-    max_overflow=20,            # Max connections beyond pool_size
-    echo=False                  # Set True for SQL query logging (dev only)
-)
+# ======================================================
+# 1. Load DATABASE_URL (fallback to SQLite automatically)
+# ======================================================
 
-# ============================================
-# Session Factory
-# ============================================
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+if not DATABASE_URL:
+    # Auto-fallback to SQLite instead of crashing
+    print("⚠️ DATABASE_URL not set — using SQLite database.db")
+    DATABASE_URL = "sqlite:///./database.db"
+
+# ======================================================
+# 2. Create SQLAlchemy Engine
+#    PostgreSQL → pooling enabled
+#    SQLite     → pooling disabled (SQLite hates it)
+# ======================================================
+
+if DATABASE_URL.startswith("sqlite"):
+    engine = create_engine(
+        DATABASE_URL,
+        connect_args={"check_same_thread": False},  # required for SQLite
+        echo=False
+    )
+else:
+    # PostgreSQL, MySQL, etc.
+    engine = create_engine(
+        DATABASE_URL,
+        pool_pre_ping=True,
+        pool_size=10,
+        max_overflow=20,
+        pool_timeout=60,
+        pool_recycle=3600,
+        echo=False
+    )
+
+# SessionLocal factory
 SessionLocal = sessionmaker(
     autocommit=False,
     autoflush=False,
     bind=engine
 )
 
-# ============================================
-# Base Class for Models
-# ============================================
+# Base class for ORM models
 Base = declarative_base()
 
-# ============================================
-# Database Dependency (for FastAPI)
-# ============================================
+# ======================================================
+# 3. DB Dependency (FastAPI standard)
+# ======================================================
+
 def get_db():
-    """
-    Database session dependency for FastAPI endpoints.
-    Automatically closes connection after request.
-    """
     db = SessionLocal()
     try:
         yield db

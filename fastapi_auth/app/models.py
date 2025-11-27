@@ -129,8 +129,12 @@ class StudentProfile(Base):
     year = Column(Integer)
     school_id = Column(Integer, ForeignKey('school.school_id', ondelete='CASCADE', onupdate='CASCADE'), nullable=False)
     department_id = Column(Integer, ForeignKey('department.department_id', ondelete='CASCADE', onupdate='CASCADE'), nullable=False)
+
+    # 🔥 ADD THIS FIELD
+    user_id = Column(UUID(as_uuid=True), ForeignKey('users.user_id', ondelete='CASCADE', onupdate='CASCADE'), unique=True, nullable=False)
+
     created_at = Column(TIMESTAMP, default=datetime.utcnow)
-    
+
     __table_args__ = (
         CheckConstraint('semester BETWEEN 1 AND 8', name='check_student_semester'),
     )
@@ -141,22 +145,35 @@ class StudentProfile(Base):
     attendance_logs = relationship("AttendanceLog", back_populates="student")
     school_activities = relationship("SchoolActivity", back_populates="student")
 
+    # 🔥 ADD RELATIONSHIP
+    user = relationship("User", backref="student_profile", uselist=False)
 
 # ============================================
 # TABLE 7: teacher_profile
 # ============================================
+# Replace your current TeacherProfile definition with this
+
 class TeacherProfile(Base):
     __tablename__ = "teacher_profile"
     
     teacher_id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(UUID(as_uuid=True), ForeignKey('users.user_id', ondelete='CASCADE', onupdate='CASCADE'), unique=True, nullable=False)
     school_id = Column(Integer, ForeignKey('school.school_id', ondelete='CASCADE', onupdate='CASCADE'), nullable=False)
+
     teacher_name = Column(String(255), nullable=False)
     teacher_email = Column(String(255), unique=True)
-    
-    # Relationships
-    user = relationship("User", back_populates="teacher_profile")
+
+    department = Column(String(255))
+    subject_specialisation = Column(Text)
+
+    # ---------- Relationships (MUST match back_populates on other models) ----------
+    # user <-> teacher_profile (User.teacher_profile uses back_populates="user")
+    user = relationship("User", back_populates="teacher_profile", uselist=False)
+
+    # school <-> teachers (School.teachers uses back_populates="school")
     school = relationship("School", back_populates="teachers")
+
+    # attendance_registers <-> teacher (AttendanceRegister.teacher uses back_populates="teacher")
     attendance_registers = relationship("AttendanceRegister", back_populates="teacher")
 
 

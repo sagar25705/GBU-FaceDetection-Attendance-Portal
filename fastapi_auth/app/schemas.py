@@ -28,6 +28,14 @@ class UserResponse(BaseModel):
 class Token(BaseModel):
     access_token: str
     token_type: str
+    user_id: str
+    email: str
+    name: str
+    role: int
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
 
 class TokenData(BaseModel):
     email: Optional[str] = None
@@ -37,8 +45,10 @@ class TeacherCreate(BaseModel):
     email: EmailStr
     password: str
     name: str
-    phone_number: Optional[str] = None
+    phone_number: Optional[str]
     school_id: int
+    department: Optional[str] = None
+    subject_specialisation: Optional[str] = None
     
     @validator('password')
     def validate_password(cls, v):
@@ -54,8 +64,19 @@ class TeacherResponse(BaseModel):
     name: str
     email: str
     school_id: int
-    phone_number: Optional[str] = None
+    phone_number: Optional[str]
+    department: Optional[str]
+    subject_specialisation: Optional[str]
     message: str
+
+class TeacherUpdate(BaseModel):
+    name: Optional[str]
+    email: Optional[EmailStr]
+    phone_number: Optional[str]
+    department: Optional[str]
+    subject_specialisation: Optional[str]
+    school_id: Optional[int]
+
 
 # NEW: Student schemas (MISSING FROM YOUR SCHEMAS)
 class StudentCreate(BaseModel):
@@ -85,3 +106,15 @@ class StudentResponse(BaseModel):
     department_id: int
     message: str
     next_steps: Optional[dict] = None
+
+
+
+class AttendanceGenerate(BaseModel):
+    course_code: str
+    class_id: int
+
+
+class MarkAttendance(BaseModel):
+    unique_code: str
+    roll_no: str
+    is_manual: bool = False

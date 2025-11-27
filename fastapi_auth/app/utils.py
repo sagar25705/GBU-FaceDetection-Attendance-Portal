@@ -4,6 +4,8 @@ import hashlib
 import secrets
 from .config import SECRET_KEY, ALGORITHM
 from typing import Optional
+import random
+import string
 
 def get_password_hash(password: str) -> str:
     """Simple SHA256 + salt password hashing"""
@@ -26,3 +28,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     expire = datetime.utcnow() + (expires_delta or timedelta(minutes=15))
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+def generate_random_password(length=10):
+    chars = string.ascii_letters + string.digits
+    return ''.join(random.choice(chars) for _ in range(length))
