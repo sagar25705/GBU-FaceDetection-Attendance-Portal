@@ -341,7 +341,37 @@ def delete_teacher(teacher_id: int, db: Session = Depends(get_db)):
     return {"message": "Teacher deleted"}
 
 
+@app.get("/teacher/attendance/{unique_code}")
+def get_live_attendance(unique_code: str, db: Session = Depends(get_db)):
+    reg = db.query(models.AttendanceRegister).filter_by(unique_code=unique_code).first()
+    if not reg:
+        raise HTTPException(status_code=404, detail="Class code not found")
 
+    # fetch attendance logs joined with student info if available
+    logs = (
+        db.query(models.AttendanceLog, models.StudentProfile)
+          .join(models.StudentProfile, models.AttendanceLog.roll_no == models.StudentProfile.roll_no, isouter=True)
+          .filter(models.AttendanceLog.unique_code == unique_code)
+          .order_by(models.AttendanceLog.created_at.asc())
+          .all()
+    )
+
+    result = []
+    for log, student in logs:
+        result.append({
+            "attendance_id": log.attendance_id,
+            "roll_no": log.roll_no,
+            "student_name": student.name if student else None,
+            "is_manual": log.is_manual,
+            "created_at": log.created_at.isoformat()
+        })
+
+    return {
+        "class_code": unique_code,
+        "course_code": reg.course_code,
+        "teacher_id": reg.teacher_id,
+        "logs": result
+    }
 
 @app.post("/attendance/generate")
 async def generate_attendance(
@@ -352,7 +382,7 @@ async def generate_attendance(
 
     user = await auth.get_current_user_simple(credentials.credentials, db)
 
-    if user.role != 3:
+    if user.role != 2:
         raise HTTPException(403, "Only teachers can generate class code")
 
     import random
@@ -449,7 +479,7 @@ def register(user_data: schemas.UserCreate, db: Session = Depends(get_db)):
     new_user = models.User(
         email=user_data.email,
         password_hash=hashed_password,
-        role=3,  # Default role: teacher
+        role=2,  # Default role: teacher
         name=user_data.email.split('@')[0]  # Use email prefix as name
     )
 
@@ -498,13 +528,31 @@ def login(user_credentials: schemas.LoginRequest, db: Session = Depends(get_db))
     response_model=schemas.UserResponse,
     summary="Get current user (Bearer token required)"
 )
-async def read_users_me(credentials: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_db)):
-    """
-    Get current user info using Bearer token.
-    """
+@app.get("/users/me", response_model=schemas.UserResponse)
+async def read_users_me(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db)
+):
     token = credentials.credentials
     user = await auth.get_current_user_simple(token, db)
-    return user
+
+    roll_no = None
+    if user.role == 3:  # student
+        student = db.query(models.StudentProfile).filter(
+            models.StudentProfile.user_id == user.user_id
+        ).first()
+        if student:
+            roll_no = student.roll_no
+
+    return {
+        "user_id": user.user_id,
+        "email": user.email,
+        "name": user.name,
+        "role": user.role,
+        "created_at": user.created_at,
+        "roll_no": roll_no
+    }
+
 
 
 
@@ -638,7 +686,7 @@ Your account has been created.
 
 Login Credentials:
 -----------------------
-Roll Number (Username): {data.roll_no}
+Roll Number (Username): {data.email}
 Temporary Password:     {data.password}
 
 Please login and change the password immediately.
@@ -667,9 +715,18 @@ def delete_student(roll_no: str, db: Session = Depends(get_db)):
     if not student:
         raise HTTPException(404, "Student not found")
 
+    # Get the user mapped to this student
+    user = db.query(models.User).filter(models.User.user_id == student.user_id).first()
+
+    # Delete student profile first
     db.delete(student)
+
+    # Delete user if exists
+    if user:
+        db.delete(user)
+
     db.commit()
-    return {"message": "Student deleted"}
+    return {"message": "Student + User account deleted"}
 
 
 @app.post(

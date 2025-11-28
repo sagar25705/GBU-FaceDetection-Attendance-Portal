@@ -24,6 +24,7 @@ class UserResponse(BaseModel):
     name: str
     role: int
     created_at: datetime
+    roll_no: Optional[str] = None
 
 class Token(BaseModel):
     access_token: str
@@ -98,14 +99,17 @@ class StudentCreate(BaseModel):
 class StudentResponse(BaseModel):
     roll_no: str
     name: str
-    email: Optional[str] = None
-    phone_number: Optional[str] = None
+    email: Optional[str]
+    phone_number: Optional[str]
     semester: int
     year: int
     school_id: int
     department_id: int
+    temporary_password: Optional[str]  # <- ADD THIS
     message: str
     next_steps: Optional[dict] = None
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 

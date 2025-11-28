@@ -14,13 +14,15 @@ def get_password_hash(password: str) -> str:
     return f"{salt}:{password_hash}"
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify SHA256 + salt password"""
     try:
         salt, stored_hash = hashed_password.split(':')
         password_hash = hashlib.sha256((plain_password + salt).encode()).hexdigest()
         return password_hash == stored_hash
     except:
-        return False
+        # << looks like you have a broken/truncated except block in your real file
+        ...
+    return False
+
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     """Create JWT access token"""
@@ -29,6 +31,6 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
-def generate_random_password(length=10):
-    chars = string.ascii_letters + string.digits
-    return ''.join(random.choice(chars) for _ in range(length))
+def generate_random_password():
+    return secrets.token_urlsafe(8)
+
