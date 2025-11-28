@@ -1,0 +1,8 @@
+services:
+  - type: web
+    name: gbu-backend
+    env: python
+    startCommand: "python run.py"
+    buildCommand: "pip install -r requirements.txt"
+    envVars:
+      DATABASE_URL: "sqlite:///database.db"
