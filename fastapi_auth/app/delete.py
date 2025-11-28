@@ -19,7 +19,7 @@ from .database import SessionLocal
 from .models import User, StudentProfile
 
 
-TARGET_EMAIL = "samekshaamaulikaa04@gmail.com"
+TARGET_EMAIL = "dtuskillop@gmail.com"
 
 
 def delete_user(email: str):

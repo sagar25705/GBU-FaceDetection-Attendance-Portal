@@ -142,7 +142,13 @@ class StudentProfile(Base):
     # Relationships
     school = relationship("School", back_populates="students")
     department = relationship("Department", back_populates="students")
-    attendance_logs = relationship("AttendanceLog", back_populates="student")
+    attendance_logs = relationship(
+    "AttendanceLog",
+    back_populates="student",
+    cascade="all, delete-orphan",
+    passive_deletes=True
+)
+
     school_activities = relationship("SchoolActivity", back_populates="student")
 
     # 🔥 ADD RELATIONSHIP
@@ -174,7 +180,13 @@ class TeacherProfile(Base):
     school = relationship("School", back_populates="teachers")
 
     # attendance_registers <-> teacher (AttendanceRegister.teacher uses back_populates="teacher")
-    attendance_registers = relationship("AttendanceRegister", back_populates="teacher")
+    attendance_registers = relationship(
+    "AttendanceRegister",
+    back_populates="teacher",
+    cascade="all, delete-orphan",
+    passive_deletes=True
+)
+
 
 
 # ============================================

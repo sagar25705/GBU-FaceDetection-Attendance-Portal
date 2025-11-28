@@ -1,3 +1,5 @@
+from dotenv import load_dotenv
+load_dotenv()
 
 # from fastapi import FastAPI, Depends, HTTPException, status
 # from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -535,7 +537,6 @@ async def read_users_me(
 ):
     token = credentials.credentials
     user = await auth.get_current_user_simple(token, db)
-
     roll_no = None
     if user.role == 3:  # student
         student = db.query(models.StudentProfile).filter(
@@ -560,6 +561,8 @@ async def read_users_me(
 # GET ALL STUDENTS
 # ============================
 
+from sqlalchemy import func
+
 @app.get("/admin/stats")
 def dashboard_stats(db: Session = Depends(get_db)):
 
@@ -568,20 +571,31 @@ def dashboard_stats(db: Session = Depends(get_db)):
     total_teachers = db.query(models.TeacherProfile).count()
 
     school_distribution = (
-        db.query(models.School.school_name, db.func.count(models.StudentProfile.roll_no))
+        db.query(
+            models.School.school_name,
+            func.count(models.StudentProfile.roll_no)
+        )
         .join(models.StudentProfile, models.School.school_id == models.StudentProfile.school_id)
         .group_by(models.School.school_name)
         .all()
     )
 
-    recent = db.query(models.SchoolActivity).order_by(models.SchoolActivity.timestamp.desc()).limit(6).all()
+    # FIX 2: You made another mistake here:
+    # YOU USED `timestamp`, BUT YOUR MODEL COLUMN IS `created_at` OR `updated_at`.
+    # FIX that too!!!
+    recent = (
+        db.query(models.SchoolActivity)
+        .order_by(models.SchoolActivity.created_at.desc())
+        .limit(6)
+        .all()
+    )
 
     return {
         "stats": {
             "totalSchools": total_schools,
             "totalStudents": total_students,
             "totalTeachers": total_teachers,
-            "activeCourses": 42
+            "activeCourses": 42,
         },
         "recentActivities": [
             {
@@ -595,7 +609,8 @@ def dashboard_stats(db: Session = Depends(get_db)):
             {
                 "school": s[0],
                 "students": s[1]
-            } for s in school_distribution
+            }
+            for s in school_distribution
         ]
     }
 
@@ -670,9 +685,12 @@ def send_student_credentials(data: CredentialEmailRequest):
         SENDER_EMAIL = os.getenv("SMTP_EMAIL")
         SENDER_PASSWORD = os.getenv("SMTP_PASSWORD")
 
+        print("SMTP_EMAIL:", os.getenv("SMTP_EMAIL"))
+        print("SMTP_PASSWORD:", os.getenv("SMTP_PASSWORD"))
+
+
         if not SENDER_EMAIL or not SENDER_PASSWORD:
             raise HTTPException(500, "Email environment variables missing")
-
         msg = EmailMessage()
         msg["Subject"] = "Your Student Login Credentials"
         msg["From"] = SENDER_EMAIL
